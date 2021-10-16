@@ -5,7 +5,59 @@ Rishabh Jain
 """
 from random import *
 from socket import *
+import signal
 
+
+def signalHandler(sig, frame):
+    print("Interrupt received, shutting down ...")
+    discMsg = "DISCONNECT CHAT/1.0"
+    connectionSocket.send(discMsg.encode())
+    exit()
+
+
+def checkRegistration(checkMessage):
+    # The split command is put into a try and exceptions are caught
+    try:
+        (reg, client, chat) = checkMessage.split(" ")
+    except ValueError:
+        # Print and send 400 Invalid registration
+        print("400 Invalid registration")
+        connectionSocket.send("400 Invalid registration".encode())
+        exit()
+
+    validMessage = "REGISTER " + client + " CHAT/1.0"
+    # Check format of registration message and presence of username in list
+    if checkMessage == validMessage:
+        # Checks if client is already registered
+        if client not in clientList:
+            clientList.append(client)
+            connectionSocket.send("200 Registration successful".encode())
+            print("Accepted connection from client address: " + connectionSocket.recv(1024).decode())
+            print("Connection to client established, waiting to receive messages from user '" + client + "'")
+        # Client already exists, send error message
+        else:
+            print("401 Client already registered")
+            connectionSocket.send("401 Client already registered".encode())
+            exit()
+
+    # Error with message format
+    else:
+        print("400 Invalid registration")
+        connectionSocket.send("400 Invalid registration".encode())
+        exit()
+
+    return client
+
+
+def checkDisconnect(message, user):
+    # Check format of disconnect message
+    if message == "DISCONNECT " + user + " CHAT/1.0":
+        return True
+    else:
+        return False
+
+
+#socketList = []
 clientList = []
 
 # Server Port, and Address
@@ -24,35 +76,21 @@ connectionSocket, addr = serverSocket.accept()
 
 # Receives registration message from client
 regMsg = connectionSocket.recv(1024).decode()
-# The split command is put into a try and exceptions are caught
-try:
-    (reg, clientUsername, chat) = regMsg.split(" ")
-except ValueError:
-    # Print and send 400 Invalid registration
-    print("400 Invalid registration")
-    connectionSocket.send("400 Invalid registration".encode())
-    exit()
-
-# Check format of registration message and presence of username in list
-if reg == "REGISTER" and clientUsername.isalpha() and chat == "CHAT/1.0":
-    # Checks if client is already registered
-    if clientUsername not in clientList:
-        print("Accepted connection from client address: ('")
-        connectionSocket.send("200 Registration successful".encode())
-    # Client already exists, send error message
-    else:
-        print("401 Client already registered")
-        connectionSocket.send("401 Client already registered".encode())
-        exit()
-
-# Error with message format
-else:
-    print("400 Invalid registration")
-    connectionSocket.send("400 Invalid registration".encode())
-    exit()
+clientUsername = checkRegistration(regMsg)
 
 while True:
-    sentence = connectionSocket.recv(1024).decode()
-    capsSentence = sentence.upper()
-    connectionSocket.send(capsSentence.encode())
-connectionSocket.close()
+    signal.signal(signal.SIGINT, signalHandler)
+    message = connectionSocket.recv(1024).decode()
+    print("Received message from user " + clientUsername + ": " + message)
+    if checkDisconnect(message, clientUsername):
+        print("Disconnecting user " + clientUsername)
+        clientList.remove(clientUsername)
+        if len(clientList) == 0:
+            print("No more clients, good bye")
+            signal.pause()
+            connectionSocket.close()
+            exit()
+    else:
+        connectionSocket.send(message.encode())
+    print(clientList)
+

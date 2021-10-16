@@ -7,6 +7,23 @@ from socket import *
 import sys
 import argparse
 from urllib.parse import urlparse
+import signal
+
+
+def signalHandler(sig, frame):
+    print("Interrupt received, shutting down ...")
+    discMsg = "DISCONNECT " + clientUsername + " CHAT/1.0"
+    clientSocket.send(discMsg.encode())
+    exit()
+
+
+def checkDisconnect():
+    # Check format of disconnect message
+    if message == "DISCONNECT CHAT/1.0":
+        return True
+    else:
+        return False
+
 
 if len(sys.argv) == 3:
     # Using argparse
@@ -40,9 +57,14 @@ if len(sys.argv) == 3:
 
     # Creating socket and connecting
     clientSocket = socket(AF_INET, SOCK_STREAM)
-    clientSocket.connect((hostname, port))
+    # Checking for connection errors
+    try:
+        clientSocket.connect((hostname, port))
+        print("Connection to server established. Sending intro message ...\n")
+    except ConnectionError or ConnectionRefusedError:
+        print("Connection unsuccessful, check address details and try again")
+        exit()
 
-    print("Connection to server established. Sending intro message ...")
     # Creating and sending registration message
     regMsg = "REGISTER " + clientUsername + " CHAT/1.0"
     clientSocket.send(regMsg.encode())
@@ -59,14 +81,18 @@ if len(sys.argv) == 3:
     if regMsgResponse == "200 Registration successful":
         print("Registration successful. Ready for messaging!")
 
+    # Sends client socket information to server
+    clientSocket.send(str(clientSocket.getsockname()).encode())
+
     while True:
+        signal.signal(signal.SIGINT, signalHandler)
+        #checkDisconnect()
         inputMessage = input('Input: ')
         message = ("@" + clientUsername + " " + inputMessage)
-        print(message)
-
         clientSocket.send(message.encode())
-        modifiedSentence = clientSocket.recv(1024)
-        print('From Server:', modifiedSentence.decode())
+        receivedMessage = clientSocket.recv(1024)
+        print('From Server:', receivedMessage.decode())
+    signal.pause()
     clientSocket.close()
 
 else:
