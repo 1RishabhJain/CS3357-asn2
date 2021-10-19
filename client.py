@@ -9,7 +9,10 @@ import argparse
 from urllib.parse import urlparse
 import signal
 
-'''
+
+# Functions to assist with the program
+
+# Function signalHandler handles user interrupt ^C
 def signalHandler(sig, frame):
     print("Interrupt received, shutting down ...")
     discMsg = "DISCONNECT " + clientUsername + " CHAT/1.0"
@@ -17,13 +20,12 @@ def signalHandler(sig, frame):
     exit()
 
 
-def checkDisconnect():
+def checkDisconnect(discMessage):
     # Check format of disconnect message
     if message == "DISCONNECT CHAT/1.0":
         return True
     else:
         return False
-'''
 
 
 def validateArgs():
@@ -58,51 +60,65 @@ def validateArgs():
         exit()
 
 
+# Steps required to establish the initial connection to the server
+def initialConnection():
+    print("Connecting to server ...")
+
+    # Creating socket and connecting
+    client = socket(AF_INET, SOCK_STREAM)
+
+    # Checking for connection errors
+    try:
+        client.connect((hostname, port))
+    except ConnectionError or ConnectionRefusedError:
+        print("Connection unsuccessful, check address details and try again")
+        exit()
+
+    # Successful connection
+    print("Connection to server established. Sending intro message ...\n")
+    return client
+
+
+# Registration message function is used to send and validate the registration message
+def regMessage(client):
+    # Creating and sending registration message
+    regMsg = "REGISTER " + clientUsername + " CHAT/1.0"
+    client.send(regMsg.encode())
+
+    # Receiving registration response from server
+    regMsgResponse = client.recv(1024).decode()
+
+    # Error with registration
+    if regMsgResponse == "400 Invalid registration" or regMsgResponse == "401 Client already registered":
+        print(regMsgResponse)
+        exit()
+
+    # Successful registration
+    if regMsgResponse == "200 Registration successful":
+        print("Registration successful. Ready for messaging!")
+
+    # Sends client socket information to server
+    client.send(str(clientSocket.getsockname()).encode())
+
+
 # Calls function to validate the arguments, if there is any error then it will exit the program
 clientUsername, hostname, port = validateArgs()
 
-# Remainder of program executes if the username, host, and port are valid
-print("Connecting to server ...")
+# Calls initialConnection function to establish the connection
+clientSocket = initialConnection()
 
-# Creating socket and connecting
-clientSocket = socket(AF_INET, SOCK_STREAM)
-# Checking for connection errors
-try:
-    clientSocket.connect((hostname, port))
-    print("Connection to server established. Sending intro message ...\n")
-except ConnectionError or ConnectionRefusedError:
-    print("Connection unsuccessful, check address details and try again")
-    exit()
-
-# Creating and sending registration message
-regMsg = "REGISTER " + clientUsername + " CHAT/1.0"
-clientSocket.send(regMsg.encode())
-
-# Receiving registration response from server
-regMsgResponse = clientSocket.recv(1024).decode()
-
-# Error with registration
-if regMsgResponse == "400 Invalid registration" or regMsgResponse == "401 Client already registered":
-    print(regMsgResponse)
-    exit()
-
-# Successful registration
-if regMsgResponse == "200 Registration successful":
-    print("Registration successful. Ready for messaging!")
-
-# Sends client socket information to server
-clientSocket.send(str(clientSocket.getsockname()).encode())
+# Calls regMessage function to send and validate the registration message
+regMessage(clientSocket)
 
 while True:
-    # signal.signal(signal.SIGINT, signalHandler)
-    # checkDisconnect()
+    # Checks for user interrupt --> ^C
+    signal.signal(signal.SIGINT, signalHandler)
     inputMessage = input('Input: ')
     message = ("@" + clientUsername + " " + inputMessage)
-
     clientSocket.send(message.encode())
 
     receivedMessage = clientSocket.recv(1024)
-
+    checkDisconnect(receivedMessage)
     print('From Server:', receivedMessage.decode())
 
 signal.pause()
