@@ -10,6 +10,8 @@ from urllib.parse import urlparse
 import signal
 import selectors
 
+sel = selectors.DefaultSelector()
+
 
 # Functions to assist with the program
 
@@ -18,6 +20,7 @@ def signalHandler(sig, frame):
     print("Interrupt received, shutting down ...")
     discMsg = "DISCONNECT " + clientUsername + " CHAT/1.0"
     clientSocket.send(discMsg.encode())
+    sel.unregister(clientSocket)
     signal.pause()
     clientSocket.close()
     exit()
@@ -26,11 +29,14 @@ def signalHandler(sig, frame):
 def checkDisconnect(discMessage):
     # Check format of disconnect message
     if discMessage == "DISCONNECT CHAT/1.0":
+        sel.unregister(clientSocket)
         signal.pause()
         clientSocket.close()
-        return True
+        quit()
+        #return True
     else:
-        return False
+        #return False
+        pass
 
 
 def validateArgs():
@@ -101,16 +107,24 @@ def regMessage(client):
     # Successful registration
     if regMsgResponse == "200 Registration successful":
         print("Registration successful. Ready for messaging!")
-        selectors.register(sys.stdin, selectors.EVENT_READ, readStdin)
+        sel.register(sys.stdin, selectors.EVENT_READ, readStdin)
+        sel.register(clientSocket, selectors.EVENT_READ, readServer)
+
         # Sends client socket information to server
         client.send(str(clientSocket.getsockname()).encode())
         return True
 
 
-def readStdin(cSocket, mask):
-    inputMessage = cSocket.readline()
+def readStdin(terminal, mask):
+    inputMessage = terminal.readline()
     inputMessage = ("@" + clientUsername + " " + inputMessage)
     clientSocket.send(inputMessage.encode())
+
+
+def readServer(cSocket, mask):
+    receivedMessage = cSocket.recv(1024)
+    checkDisconnect(receivedMessage)
+    print('From Server:', receivedMessage.decode())
 
 
 connected = False
@@ -126,18 +140,21 @@ while not connected:
     connected = regMessage(clientSocket)
 
 
+
 while True:
     # Checks for user interrupt --> ^C
-    signal.signal(signal.SIGINT, signalHandler)
-
-
+    exitStatus = signal.signal(signal.SIGINT, signalHandler)
+    events = sel.select()
+    for key, mask in events:
+        callback = key.data
+        callback(key.fileobj, mask)
 
     # message = ("@" + clientUsername + " " + inputMessage)
     # clientSocket.send(message.encode())
 
-    receivedMessage = clientSocket.recv(1024)
-    checkDisconnect(receivedMessage)
-    print('From Server:', receivedMessage.decode())
+
+
+
 
 
 # In addition to the text messages sent from the client to the server, other control messages will need to be sent back and forth, with HTTP-styled request and response formatting.  Note that these messages do not begin with an "@username: " unlike regular text messages.

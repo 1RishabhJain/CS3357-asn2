@@ -16,9 +16,19 @@ import select
 def signalHandler(sig, frame):
     print("Interrupt received, shutting down ...")
     discMsg = "DISCONNECT CHAT/1.0"
+    originalList = clientList
     # Send each client the disconnect message
     for i in clientList:
         i.send(discMsg.encode())
+        select.unregister(i)
+        i.close()
+        """
+        # Remove the receiveSocket (key) and the client (item) from the dictionary
+        clientList.pop(i)
+        print(clientList)
+        # Remove the socket from the socket list
+        socketList.remove(i)
+        """
     exit()
 
 
@@ -79,13 +89,6 @@ def receiveMessage(receiveSocket, newClient):
                 print(clientList)
                 # Remove the socket from the socket list
                 socketList.remove(receiveSocket)
-                # IS THIS NEEDED?
-                # Check if there are any other clients left
-                if not clientList:
-                    print("No more clients, closing server. Good bye")
-                    signal.pause()
-                    clientSocket.close()
-                    exit()
             # Print the received message and return it
             else:
                 print("Received message from user " + clientList[receiveSocket] + ": " + message)
