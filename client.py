@@ -8,7 +8,7 @@ import sys
 import argparse
 from urllib.parse import urlparse
 import signal
-import select
+import selectors
 
 
 # Functions to assist with the program
@@ -18,12 +18,16 @@ def signalHandler(sig, frame):
     print("Interrupt received, shutting down ...")
     discMsg = "DISCONNECT " + clientUsername + " CHAT/1.0"
     clientSocket.send(discMsg.encode())
+    signal.pause()
+    clientSocket.close()
     exit()
 
 
 def checkDisconnect(discMessage):
     # Check format of disconnect message
-    if message == "DISCONNECT CHAT/1.0":
+    if discMessage == "DISCONNECT CHAT/1.0":
+        signal.pause()
+        clientSocket.close()
         return True
     else:
         return False
@@ -97,36 +101,43 @@ def regMessage(client):
     # Successful registration
     if regMsgResponse == "200 Registration successful":
         print("Registration successful. Ready for messaging!")
+        selectors.register(sys.stdin, selectors.EVENT_READ, readStdin)
+        # Sends client socket information to server
+        client.send(str(clientSocket.getsockname()).encode())
+        return True
 
-    # Sends client socket information to server
-    client.send(str(clientSocket.getsockname()).encode())
+
+def readStdin(cSocket, mask):
+    inputMessage = cSocket.readline()
+    inputMessage = ("@" + clientUsername + " " + inputMessage)
+    clientSocket.send(inputMessage.encode())
 
 
-# Calls function to validate the arguments, if there is any error then it will exit the program
-clientUsername, hostname, port = validateArgs()
+connected = False
+# Repeats the following functions until a valid connection is established
+while not connected:
+    # Calls function to validate the arguments, if there is any error then it will exit the program
+    clientUsername, hostname, port = validateArgs()
 
-# Calls initialConnection function to establish the connection
-clientSocket = initialConnection()
+    # Calls initialConnection function to establish the connection
+    clientSocket = initialConnection()
 
-# Calls regMessage function to send and validate the registration message
-regMessage(clientSocket)
+    # Calls regMessage function to send and validate the registration message
+    connected = regMessage(clientSocket)
+
 
 while True:
     # Checks for user interrupt --> ^C
     signal.signal(signal.SIGINT, signalHandler)
 
-    read, _, error = select.select()
 
-    inputMessage = input('Input: ')
-    message = ("@" + clientUsername + " " + inputMessage)
-    clientSocket.send(message.encode())
+
+    # message = ("@" + clientUsername + " " + inputMessage)
+    # clientSocket.send(message.encode())
 
     receivedMessage = clientSocket.recv(1024)
     checkDisconnect(receivedMessage)
     print('From Server:', receivedMessage.decode())
-
-signal.pause()
-clientSocket.close()
 
 
 # In addition to the text messages sent from the client to the server, other control messages will need to be sent back and forth, with HTTP-styled request and response formatting.  Note that these messages do not begin with an "@username: " unlike regular text messages.

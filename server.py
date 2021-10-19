@@ -31,7 +31,6 @@ def checkRegistration(checkMessage, receiveSocket):
         # Print and send 400 Invalid registration
         print("400 Invalid registration")
         receiveSocket.send("400 Invalid registration".encode())
-        exit()
 
     # Valid message that can be compared with the received message
     validMessage = "REGISTER " + client + " CHAT/1.0"
@@ -52,15 +51,12 @@ def checkRegistration(checkMessage, receiveSocket):
         else:
             # Print to server and send to attempting connection that the client name exists
             print("401 Client already registered")
+            # Should this be done like this or through std.
             receiveSocket.send("401 Client already registered".encode())
-            exit()
-
     # Error with message format
     else:
         print("400 Invalid registration")
         receiveSocket.send("400 Invalid registration".encode())
-        exit()
-
     return client
 
 
