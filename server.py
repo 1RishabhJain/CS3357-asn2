@@ -156,4 +156,3 @@ while True:
             for clientSocket in clientList:
                 if clientSocket != notifiedSocket:
                     clientSocket.send(clientMessage.encode())
-    # print(clientList)

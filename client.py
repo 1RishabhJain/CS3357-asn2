@@ -8,6 +8,7 @@ import sys
 import argparse
 from urllib.parse import urlparse
 import signal
+import select
 
 
 # Functions to assist with the program
@@ -113,6 +114,9 @@ regMessage(clientSocket)
 while True:
     # Checks for user interrupt --> ^C
     signal.signal(signal.SIGINT, signalHandler)
+
+    read, _, error = select.select()
+
     inputMessage = input('Input: ')
     message = ("@" + clientUsername + " " + inputMessage)
     clientSocket.send(message.encode())
@@ -123,3 +127,6 @@ while True:
 
 signal.pause()
 clientSocket.close()
+
+
+# In addition to the text messages sent from the client to the server, other control messages will need to be sent back and forth, with HTTP-styled request and response formatting.  Note that these messages do not begin with an "@username: " unlike regular text messages.
