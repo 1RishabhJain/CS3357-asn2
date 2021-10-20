@@ -2,43 +2,35 @@
 CS3357 Assignment #2
 Oct 19, 2021
 Rishabh Jain
+
+client.py
 """
+
+from urllib.parse import urlparse
 from socket import *
 import sys
 import argparse
-from urllib.parse import urlparse
 import signal
 import selectors
 
+# Selectors
 sel = selectors.DefaultSelector()
 
 
-# Functions to assist with the program
-
 # Function signalHandler handles user interrupt ^C
 def signalHandler(sig, frame):
+    # Print interrupt message
     print("Interrupt received, shutting down ...")
+    # Create and send disconnect message
     discMsg = "DISCONNECT " + clientUsername + " CHAT/1.0"
     clientSocket.send(discMsg.encode())
+    # Unregister socket, close and exit
     sel.unregister(clientSocket)
-    signal.pause()
     clientSocket.close()
     exit()
 
 
-def checkDisconnect(discMessage):
-    # Check format of disconnect message
-    if discMessage == "DISCONNECT CHAT/1.0":
-        sel.unregister(clientSocket)
-        signal.pause()
-        clientSocket.close()
-        quit()
-        #return True
-    else:
-        #return False
-        pass
-
-
+# Function to validate the command line arguments provided when client is run
 def validateArgs():
     if len(sys.argv) == 3:
         # Using argparse
@@ -106,28 +98,41 @@ def regMessage(client):
 
     # Successful registration
     if regMsgResponse == "200 Registration successful":
+        client.send(str(client.getsockname()).encode())
         print("Registration successful. Ready for messaging!")
         sel.register(sys.stdin, selectors.EVENT_READ, readStdin)
         sel.register(clientSocket, selectors.EVENT_READ, readServer)
-
-        # Sends client socket information to server
-        client.send(str(clientSocket.getsockname()).encode())
         return True
+    else:
+        return False
 
 
+# Function to read terminal input
 def readStdin(terminal, mask):
+    # Read line
     inputMessage = terminal.readline()
-    inputMessage = ("@" + clientUsername + " " + inputMessage)
-    clientSocket.send(inputMessage.encode())
+    # Append '@' symbol and the client's name to the message
+    modifiedMessage = ("@" + clientUsername + " " + inputMessage)
+    # Send the modified message
+    clientSocket.send(modifiedMessage.encode())
 
 
+# Function to read server events
 def readServer(cSocket, mask):
-    receivedMessage = cSocket.recv(1024)
-    checkDisconnect(receivedMessage)
-    print('From Server:', receivedMessage.decode())
+    receivedMessage = cSocket.recv(1024).decode()
+    # Check format of disconnect message
+    if receivedMessage == "DISCONNECT CHAT/1.0":
+        print("Disconnected from server ... exiting!")
+        sel.unregister(cSocket)
+        cSocket.close()
+        quit()
+    else:
+        print(receivedMessage)
 
 
+# Boolean to store connected state
 connected = False
+
 # Repeats the following functions until a valid connection is established
 while not connected:
     # Calls function to validate the arguments, if there is any error then it will exit the program
@@ -140,21 +145,12 @@ while not connected:
     connected = regMessage(clientSocket)
 
 
-
 while True:
     # Checks for user interrupt --> ^C
-    exitStatus = signal.signal(signal.SIGINT, signalHandler)
+    signal.signal(signal.SIGINT, signalHandler)
+
+    # Selectors
     events = sel.select()
     for key, mask in events:
         callback = key.data
         callback(key.fileobj, mask)
-
-    # message = ("@" + clientUsername + " " + inputMessage)
-    # clientSocket.send(message.encode())
-
-
-
-
-
-
-# In addition to the text messages sent from the client to the server, other control messages will need to be sent back and forth, with HTTP-styled request and response formatting.  Note that these messages do not begin with an "@username: " unlike regular text messages.

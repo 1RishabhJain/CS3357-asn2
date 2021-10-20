@@ -2,156 +2,144 @@
 CS3357 Assignment #2
 Oct 19, 2021
 Rishabh Jain
+
+server.py
 """
-import socket
-from random import *
+
 from socket import *
+from random import *
+import selectors
 import signal
-import select
 
+# Selectors
+sel = selectors.DefaultSelector()
 
-# Functions to assist with the program
 
 # Function signalHandler handles user interrupt ^C
 def signalHandler(sig, frame):
+    # Print interrupt message
     print("Interrupt received, shutting down ...")
     discMsg = "DISCONNECT CHAT/1.0"
-    originalList = clientList
-    # Send each client the disconnect message
-    for i in clientList:
+    # Iterate through the client dictionary
+    for i in clientDict:
+        # Send disconnect message, unregister and close connection
         i.send(discMsg.encode())
-        select.unregister(i)
+        sel.unregister(i)
         i.close()
-        """
-        # Remove the receiveSocket (key) and the client (item) from the dictionary
-        clientList.pop(i)
-        print(clientList)
-        # Remove the socket from the socket list
-        socketList.remove(i)
-        """
     exit()
 
 
-# Function to check registration message and duplicate clients
-def checkRegistration(checkMessage, receiveSocket):
-    # The split command is put into a try and exceptions are caught
-    try:
-        (reg, client, chat) = checkMessage.split(" ")
-    except ValueError:
-        # Print and send 400 Invalid registration
-        print("400 Invalid registration")
-        receiveSocket.send("400 Invalid registration".encode())
-
-    # Valid message that can be compared with the received message
-    validMessage = "REGISTER " + client + " CHAT/1.0"
-    # Check format of registration message and presence of username in list
-    if checkMessage == validMessage:
-        # Checks if client is already registered
-        if client not in clientList.values():
-            # Include the socket in the socket list
-            socketList.append(receiveSocket)
-            # Include the client in the dictionary
-            clientList[receiveSocket] = client
-            # Send the success message
-            receiveSocket.send("200 Registration successful".encode())
-            # Print the accepted connection details
-            print("Accepted connection from client address: " + receiveSocket.recv(1024).decode())
-            print("Connection to client established, waiting to receive messages from user '" + client + "'")
-        # Client already exists, send error message
-        else:
-            # Print to server and send to attempting connection that the client name exists
-            print("401 Client already registered")
-            # Should this be done like this or through std.
-            receiveSocket.send("401 Client already registered".encode())
-    # Error with message format
-    else:
-        print("400 Invalid registration")
-        receiveSocket.send("400 Invalid registration".encode())
-    return client
-
-
-# Function receiveMessage receives a message at the provided socket
-def receiveMessage(receiveSocket, newClient):
+# handle function handles the initial call
+def handle(conn, mask):
     # Tries to receive the message
     try:
-        message = receiveSocket.recv(1024).decode()
-        # If it's a new connection, newClient will be true and it will check registration
-        if newClient:
-            checkRegistration(message, receiveSocket)
-        # Otherwise check if the message is a disconnect request
-        else:
-            user = clientList[receiveSocket]
-            # Call checkDisconnect function
-            if checkDisconnect(message, user):
-                print("Disconnecting user " + user)
-                # Remove the receiveSocket (key) and the client (item) from the dictionary
-                clientList.pop(receiveSocket)
-                print(clientList)
-                # Remove the socket from the socket list
-                socketList.remove(receiveSocket)
-            # Print the received message and return it
-            else:
-                print("Received message from user " + clientList[receiveSocket] + ": " + message)
-            return message
-    # Catches socket errors
-    except error as e:
-        print("Error reading message: " + e)
+        conn, addr = serverSocket.accept()
+        sel.register(conn, selectors.EVENT_READ, readMessage)
+    # Catches errors from accept() or register()
+    except (BlockingIOError, InterruptedError, ConnectionAbortedError, ValueError, KeyError):
         pass
 
 
-# Function checkDisconnect validates the disconnect message
-def checkDisconnect(message, user):
-    # Check format of disconnect message
-    if message == "DISCONNECT " + user + " CHAT/1.0":
-        return True
+# checkRegistration function checks the registration of the new connection
+def checkRegistration(conn, message):
+    # The split command is put into a try and exceptions are caught
+    try:
+        (reg, client, chat) = message.split(" ")
+    except ValueError:
+        # Print and send 400 Invalid registration
+        print("400 Invalid registration")
+        conn.send("400 Invalid registration".encode())
+
+    # Valid message that can be compared with the received message
+    validMessage = "REGISTER " + client + " CHAT/1.0"
+
+    # Check format of registration message and presence of username in list
+    if message == validMessage:
+
+        # Checks if it's a unique username
+        if client not in clientDict.values():
+
+            # Include the socket in the socket list
+            socketList.append(conn)
+            # Include the client in the dictionary
+            clientDict[conn] = client
+            # Send the success message
+            conn.send("200 Registration successful".encode())
+            clientDetails = conn.recv(1024).decode()
+            print("Accepted connection from client address: " + str(clientDetails))
+            # Print the accepted connection details
+            print("Connection to client established, waiting to receive messages from user '" + client + "' ...")
+        # Client already exists, send error message
+        else:
+            # Print to server and send to attempting connection that the client name exists
+            conn.send("401 Client already registered".encode())
+            # Unregister and close connection
+            sel.unregister(conn)
+            conn.close()
+
+    # Error with message format
     else:
-        return False
+        # Print to server and send to attempting connection that the registration is invalid
+        print("400 Invalid registration")
+        conn.send("400 Invalid registration".encode())
+        # Unregister and close connection
+        sel.unregister(conn)
+        conn.close()
+
+
+# Function
+def readMessage(conn, eventMask):
+    # Read message
+    message = conn.recv(1024).decode()
+    if message:
+        # If the socket does not exist in our list check the registration message
+        if conn not in socketList:
+            checkRegistration(conn, message)
+        else:
+            user = clientDict[conn]
+            # Check if it's a disconnect message
+            if message == "DISCONNECT " + user + " CHAT/1.0":
+                print("Disconnecting user " + user)
+                # Remove the receiveSocket (key) and the client (item) from the dictionary
+                clientDict.pop(conn)
+                # Remove the socket from the socket list, unregister, and close connection
+                socketList.remove(conn)
+                sel.unregister(conn)
+                conn.close()
+            else:
+                # Print the received message
+                print("Received message from user " + clientDict[conn] + ": " + message)
+                # Broadcast message to all clients except the sender
+                for clientSocket in clientDict:
+                    if clientSocket != conn:
+                        clientSocket.send(message.encode())
+    else:
+        sel.unregister(conn)
+        conn.close()
 
 
 # Server Port, and Address
 serverPort = randrange(5000, 12000)
-
-# Server socket
 serverSocket = socket(AF_INET, SOCK_STREAM)
-serverSocket.setsockopt(SOL_SOCKET, SO_REUSEADDR, 1)
 serverSocket.bind(('', serverPort))
-# Server will listen for connections
-serverSocket.listen()
+serverSocket.listen(1)
+sel.register(serverSocket, selectors.EVENT_READ, handle)
+
 # List of sockets
-socketList = [serverSocket]
+socketList = []
 # Dictionary containing sockets and the clients
-clientList = {}
+clientDict = {}
 
 # Print statements indicating that the server is waiting for clients on a particular port
 print('Will wait for client connections at port', serverPort)
 print('Waiting for incoming client connections ...')
 
-# clientSocket, addr = serverSocket.accept()
-
-# Receives registration message from client
-# regMsg = clientSocket.recv(1024).decode()
-# clientUsername = checkRegistration(regMsg)
-
 while True:
     # Checks for user interrupt --> ^C
     signal.signal(signal.SIGINT, signalHandler)
 
-    # Calls select
-    readSockets, _, exceptionSockets = select.select(socketList, [], socketList)
-
-    # Loop through notified sockets
-    for notifiedSocket in readSockets:
-        # New connection since notified socket is server socket
-        if notifiedSocket == serverSocket:
-            # Accept the new connection
-            clientSocket, clientAddress = serverSocket.accept()
-            # Call receiveMessage function and pass boolean true that signifies it's a new connection
-            clientMessage = receiveMessage(clientSocket, True)
-        # It is a pre-existing connection
-        else:
-            # Call receiveMessage function and pass boolean false that signifies it's not a new connection
-            clientMessage = receiveMessage(notifiedSocket, False)
-            # Broadcast message to clients other than sender
-            for clientSocket in clientList:
-                if clientSocket != notifiedSocket:
-                    clientSocket.send(clientMessage.encode())
+    # Selectors
+    events = sel.select()
+    for key, mask in events:
+        callback = key.data
+        callback(key.fileobj, mask)
